@@ -1,0 +1,253 @@
+//QUOTE
+// wczytanie potrzebnych modułow i metod//
+
+const program = require("commander");
+const { prompt } = require("inquirer");
+const values = require("./values");
+const {
+  addQuote,
+  getQuote,
+  getQuoteList,
+  updateQuote,
+  deleteQuote,
+  showRandomQuote,
+  showQuoteFromServer
+} = require("./jscode");
+
+//Utworzenie zapytania przy dodawaniu cytatu//
+
+const questions = [
+  {
+    type: "input",
+    name: "quote",
+    message: "Enter quote ..."
+  },
+  {
+    type: "input",
+    name: "author",
+    message: "Enter author ..."
+  },
+  {
+    type: "list",
+    name: "cathegory",
+    message: "Set cathegory"
+  }
+];
+//wersja programu + opis mozna wyrzucic//
+program.version("0.0.1 niestabilna w uj").description("Quick Quote ");
+
+//progrma
+//.command --> pełna komenda wywołania funkcji,
+//.alias --> skrót do komendy,
+// .description --> opis
+// set timeout bo wyrzuca connect mongodb w polu add quote???
+// prompt (inquirer module) jesli cos to cos
+// koniec set timeout
+
+program
+  .command("addQuote")
+  .alias("a")
+  .description("Add a quote")
+  .action(() => {
+    setTimeout(function() {
+      prompt(questions).then((answers) => addQuote(answers));
+    }, 1000);
+  });
+
+program
+  .command("getQuote <quote>")
+  .alias("r")
+  .description("Get quote")
+  .action((quote) => getQuote(quote));
+
+program
+  .command("updateQuote <_id>")
+  .alias("u")
+  .description("Update quote")
+  .action((_id) => {
+    prompt(questions).then((answers) => updateQuote(_id, answers));
+  });
+
+program
+  .command("deleteQuote <_id>")
+  .alias("d")
+  .description("Delete quote")
+  .action((_id) => deleteQuote(_id));
+
+program
+  .command("getQuoteList")
+  .alias("l")
+  .description("List quotes")
+  .action(() => getQuoteList());
+
+program
+  .command("getRandomQuote")
+  .alias("gr")
+  .description("Show random quote from list")
+  .action(() => showRandomQuote());
+
+// i znow set timeout bo był bład łaczyło sie z mongodb
+// i nie pokazywało  randomowego cytatu
+program
+  .command("showQuoteFromServer")
+  .alias("sr")
+  .description("Show random quote from server")
+  .action(() =>
+    setTimeout(function() {
+      showQuoteFromServer();
+    }, 2000)
+  );
+
+
+//JSCODE
+// wczytanie potrzebnych modułow//
+const request = require("request");
+const assert = require("assert");
+const mongoose = require("mongoose");
+const colors = require("colors");
+
+//utworzenie połączenia z  mongo data base//
+const url = "mongodb://127.0.0.1:27017/quoteDb";
+mongoose.connect(url, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+});
+const db = mongoose.connection;
+db.once("open", (_) => {
+  console.log("Database connected:", url);
+});
+
+db.on("error", (err) => {
+  console.error("connection error:", err);
+});
+
+// jednakowa wielkość liter przy wrzucaniu cytatów do bazy danych moze byc równiez toUpper one ch//
+// nie działa gdy się wrzuci Json przez mongoDB Compass//
+function toLower(v) {
+  return v.toLowerCase();
+}
+
+// Definicja jak ma wyglądac baza danych: pole + typ //
+const quoteSchema = mongoose.Schema({
+  quote: { type: String, set: toLower },
+  author: { type: String, set: toLower },
+  cathegory: { type: String, set: toLower }
+});
+const Quote = mongoose.model("Quote", quoteSchema);
+
+// Funkcja tworząca cytat//
+
+const addQuote = (quote) => {
+  Quote.create(quote, (err) => {
+    assert.equal(null, err);
+    console.info("New quote added");
+    mongoose.disconnect();
+  });
+};
+
+// szukanie cytatu wg tresci i autora (pomógł wujek google)// zamiast name moze byc XX lub cokolwiek
+
+const getQuote = (name) => {
+  const search = new RegExp(name, "i");
+  Quote.find({ $or: [{ quote: search }, { author: search }] }).exec(
+    (err, quote) => {
+      assert.equal(null, err);
+      console.info(quote);
+      console.info(`${quote.length} matches`);
+      mongoose.disconnect();
+    }
+  );
+};
+
+// Funkcja zmieniająca tresc i autora cytatu//
+
+const updateQuote = (_id, quote) => {
+  Quote.update({ _id }, quote).exec((err, status) => {
+    assert.equal(null, err);
+    console.info("Updated quote");
+    mongoose.disconnect();
+  });
+};
+
+// Funkcja usuwająca cytat//
+
+const deleteQuote = (_id) => {
+  Quote.deleteOne({ _id }).exec((err, status) => {
+    assert.equal(null, err);
+    console.info("Deleted quote");
+    mongoose.disconnect();
+  });
+};
+
+// Funkcja pobierająca listę cytatów z bazy danych//
+
+const getQuoteList = () => {
+  Quote.find().exec((err, quotes) => {
+    assert.equal(null, err);
+    console.info(quotes);
+    console.info(`${quotes.length} matches`);
+    mongoose.disconnect();
+  });
+};
+
+// Funkcja wyświetlająca losowy cytat z bazy danych//
+
+const showRandomQuote = () => {
+  Quote.find().exec((err, quotes) => {
+    assert.equal(null, err);
+    const randI = [Math.floor(Math.random() * quotes.length)];
+    console.log(quotes[randI].quote, quotes[randI].author);
+    mongoose.disconnect();
+  });
+};
+
+// Funkcja wyświetlająca losowy cytat z serwera//
+
+const showQuoteFromServer = () => {
+  mongoose.disconnect();
+  const url =
+    "http://ec2-18-217-240-10.us-east-2.compute.amazonaws.com/node/quotes.php ";
+  return new Promise((resolve, reject) => {
+    request(url, (error, response, body) => {
+      if (!error && response.statusCode == 200) {
+        const data = JSON.parse(body);
+        resolve(console.log(data.quote, data.author));
+      } else {
+        reject(" not found");
+      }
+    });
+  });
+};
+
+// Export wszystkich funkcji //
+module.exports = {
+  addQuote,
+  getQuote,
+  getQuoteList,
+  updateQuote,
+  deleteQuote,
+  showRandomQuote,
+  showQuoteFromServer
+};
+
+
+
+
+//CATHEGORYNAME
+
+exports.cathegory = [
+  { name: "o kobietach" },
+  { name: "polityczne" },
+  { name: "o życiu" },
+  { name: "sportowe" },
+  { name: "motoryzacyjne" },
+  { name: "filozoficzne" },
+  { name: "z książek" },
+  { name: "o miłości" },
+  { name: " z filmów" },
+  { name: "wojenne" },
+  { name: "inne" }
+];
+exports.cathegoryPlain = exports.cathegory.map(function(o) {
+  return o.name;
+});
